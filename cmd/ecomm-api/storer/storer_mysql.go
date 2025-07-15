@@ -77,8 +77,8 @@ func (s *MySQLStorer) DeleteProduct(ctx context.Context, id int64) error {
 	}
 	return nil
 }
-func (ms *MySQLStorer) CreateOrder(ctx context.Context, o *Order) (*Order, error) {
-	err := ms.execTx(ctx, func(tx *sqlx.Tx) error {
+func (s *MySQLStorer) CreateOrder(ctx context.Context, o *Order) (*Order, error) {
+	err := s.execTx(ctx, func(tx *sqlx.Tx) error {
 		//insert into orders
 		order, err := createOrder(ctx, tx, o)
 		if err != nil {
@@ -132,8 +132,8 @@ func createOrderItems(ctx context.Context, tx *sqlx.Tx, oi OrderItem) error {
 	return nil
 }
 
-func (ms *MySQLStorer) execTx(ctx context.Context, fn func(*sqlx.Tx) error) error {
-	tx, err := ms.db.BeginTxx(ctx, nil)
+func (s *MySQLStorer) execTx(ctx context.Context, fn func(*sqlx.Tx) error) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -264,4 +264,33 @@ func (s *MySQLStorer) ListUsers(ctx context.Context) ([]User, error) {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 	return users, nil
+}
+func (s *MySQLStorer) CreateSession(ctx context.Context, session *Session) (*Session, error) {
+	_, err := s.db.NamedExecContext(ctx, `INSERT INTO sessions (id, user_email, refresh_token, is_revoked, expires_at) VALUES (:id, :user_email, :refresh_token, :is_revoked, :expires_at)`, session)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	return session, nil
+}
+func (s *MySQLStorer) GetSession(ctx context.Context, id string) (*Session, error) {
+	var session Session
+	err := s.db.GetContext(ctx, &session, "SELECT * FROM sessions WHERE id = ?", id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+	return &session, nil
+}
+func (s *MySQLStorer) RevokeSession(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE sessions SET is_revoked = TRUE WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to revoke session: %w", err)
+	}
+	return nil
+}
+func (s *MySQLStorer) DeleteSession(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete session: %w", err)
+	}
+	return nil
 }

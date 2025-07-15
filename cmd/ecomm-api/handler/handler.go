@@ -10,18 +10,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/hellwind2019/ecomm/cmd/ecomm-api/server"
 	"github.com/hellwind2019/ecomm/cmd/ecomm-api/storer"
+	"github.com/hellwind2019/ecomm/token"
 	"github.com/hellwind2019/ecomm/util"
 )
 
 type Handler struct {
-	ctx    context.Context
-	server *server.Server
+	ctx        context.Context
+	server     *server.Server
+	tokenMaker *token.JWTMaker
 }
 
-func NewHandler(srv *server.Server) *Handler {
+func NewHandler(srv *server.Server, secretKey string) *Handler {
 	return &Handler{
-		ctx:    context.Background(),
-		server: srv,
+		ctx:        context.Background(),
+		server:     srv,
+		tokenMaker: token.NewJWTMaker(secretKey),
 	}
 }
 
@@ -317,8 +320,9 @@ func toStorerUser(u UserRequest) *storer.User {
 }
 func toUserResponse(u *storer.User) UserResponse {
 	return UserResponse{
-		Name:  u.Name,
-		Email: u.Email,
+		Name:    u.Name,
+		Email:   u.Email,
+		IsAdmin: u.IsAdmin,
 	}
 }
 func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -385,6 +389,117 @@ func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	err = h.server.DeleteUser(h.ctx, i)
 	if err != nil {
 		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
+	var u LoginUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	gu, err := h.server.GetUser(h.ctx, u.Email)
+	if err != nil {
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+	err = util.CheckPasswordHash(u.Password, gu.Password)
+	if err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+	// create a json web token (JWT)
+	accessToken, accessTokenClaims, err := h.tokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Minute*15)
+	if err != nil {
+		http.Error(w, "Failed to create token", http.StatusInternalServerError)
+		return
+	}
+
+	refreshToken, refreshClaims, err := h.tokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Hour*24)
+	if err != nil {
+		http.Error(w, "Failed to create token", http.StatusInternalServerError)
+		return
+	}
+	session, _ := h.server.CreateSession(h.ctx, &storer.Session{
+		ID:           refreshClaims.RegisteredClaims.ID,
+		UserEmail:    gu.Email,
+		RefreshToken: refreshToken,
+		IsRevoked:    false,
+		ExpiresAt:    refreshClaims.RegisteredClaims.ExpiresAt.Time,
+	})
+
+	res := LoginUserResponse{
+		SessionID:             session.ID,
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		AccessTokenExpiresAt:  accessTokenClaims.ExpiresAt.Time,
+		RefreshTokenExpiresAt: refreshClaims.RegisteredClaims.ExpiresAt.Time,
+		User:                  toUserResponse(gu),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(res)
+}
+func (h *Handler) logoutUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "ID is required", http.StatusBadRequest)
+		return
+	}
+	err := h.server.DeleteSession(h.ctx, id)
+	if err != nil {
+		http.Error(w, "Failed to delete session", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (h *Handler) renewAccessToken(w http.ResponseWriter, r *http.Request) {
+	var req RenewAccessTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	refreshClaims, err := h.tokenMaker.VerifyToken(req.RefreshToken)
+	if err != nil {
+		http.Error(w, "Error verifying token", http.StatusUnauthorized)
+		return
+	}
+	session, err := h.server.GetSession(h.ctx, refreshClaims.RegisteredClaims.ID)
+	if err != nil {
+		http.Error(w, "Failed to get session", http.StatusInternalServerError)
+		return
+	}
+	if session.IsRevoked {
+		http.Error(w, "Session is revoked", http.StatusUnauthorized)
+		return
+	}
+	if session.UserEmail != refreshClaims.Email {
+		http.Error(w, "Invalid session", http.StatusUnauthorized)
+		return
+	}
+	accessToken, accessClaims, err := h.tokenMaker.CreateToken(refreshClaims.ID, refreshClaims.Email, refreshClaims.IsAdmin, time.Minute*15)
+	if err != nil {
+		http.Error(w, "Failed to create access token", http.StatusInternalServerError)
+		return
+	}
+	res := RenewAccessTokenResponse{
+		AccessToken:          accessToken,
+		AccessTokenExpiresAt: accessClaims.RegisteredClaims.ExpiresAt.Time,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(res)
+}
+func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "ID is required", http.StatusBadRequest)
+		return
+	}
+	err := h.server.RevokeSession(h.ctx, id)
+	if err != nil {
+		http.Error(w, "Failed to revoke session", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

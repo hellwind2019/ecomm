@@ -68,3 +68,22 @@ type UserResponse struct {
 type ListUserResponse struct {
 	Users []UserResponse `json:"users"`
 }
+type LoginUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+type LoginUserResponse struct {
+	SessionID             string       `json:"session_id"`
+	AccessToken           string       `json:"token"`
+	RefreshToken          string       `json:"refresh_token"`
+	AccessTokenExpiresAt  time.Time    `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time    `json:"refresh_token_expires_at"`
+	User                  UserResponse `json:"user"`
+}
+type RenewAccessTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+type RenewAccessTokenResponse struct {
+	AccessToken          string    `json:"access_token"`
+	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
+}

@@ -14,6 +14,9 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-sql-driver/mysql v1.9.3
+	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/google/uuid v1.6.0
+	github.com/ianschenck/envflag v0.0.0-20140720210342-9111d830d133
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/crypto v0.40.0
 	gopkg.in/yaml.v3 v3.0.1 // indirect

@@ -58,3 +58,15 @@ func (s *Server) UpdateUser(ctx context.Context, u *storer.User) (*storer.User, 
 func (s *Server) DeleteUser(ctx context.Context, id int64) error {
 	return s.storer.DeleteUser(ctx, id)
 }
+func (s *Server) CreateSession(ctx context.Context, session *storer.Session) (*storer.Session, error) {
+	return s.storer.CreateSession(ctx, session)
+}
+func (s *Server) GetSession(ctx context.Context, id string) (*storer.Session, error) {
+	return s.storer.GetSession(ctx, id)
+}
+func (s *Server) RevokeSession(ctx context.Context, id string) error {
+	return s.storer.RevokeSession(ctx, id)
+}
+func (s *Server) DeleteSession(ctx context.Context, id string) error {
+	return s.storer.DeleteSession(ctx, id)
+}
