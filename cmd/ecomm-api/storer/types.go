@@ -30,6 +30,7 @@ type Order struct {
 	TaxPrice      float32     `db:"tax_price"`
 	ShippingPrice float32     `db:"shipping_price"`
 	TotalPrice    float32     `db:"total_price"`
+	UserID        int64      `db:"user_id"`
 	Status        OrderStatus `db:"status"`
 	CreatedAt     time.Time   `db:"created_at"`
 	UpdatedAt     *time.Time  `db:"updated_at"`

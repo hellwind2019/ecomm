@@ -17,14 +17,14 @@ import (
 type Handler struct {
 	ctx        context.Context
 	server     *server.Server
-	tokenMaker *token.JWTMaker
+	TokenMaker *token.JWTMaker
 }
 
 func NewHandler(srv *server.Server, secretKey string) *Handler {
 	return &Handler{
 		ctx:        context.Background(),
 		server:     srv,
-		tokenMaker: token.NewJWTMaker(secretKey),
+		TokenMaker: token.NewJWTMaker(secretKey),
 	}
 }
 
@@ -193,7 +193,11 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	order, err := h.server.CreateOrder(h.ctx, toStorerOrder(o))
+
+	claims := r.Context().Value(authKey{}).(*token.UserClaims)
+	so := toStorerOrder(o)
+	so.UserID = claims.ID
+	order, err := h.server.CreateOrder(h.ctx, so)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -204,14 +208,9 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 func (h *Handler) getOrder(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	i, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		http.Error(w, "Error parsing ID", http.StatusBadRequest)
-		return
-	}
+	claims := r.Context().Value(authKey{}).(*token.UserClaims)	
 
-	order, err := h.server.GetOrder(h.ctx, i)
+	order, err := h.server.GetOrder(h.ctx, claims.ID)
 	if err != nil {
 		http.Error(w, "Failed to get order", http.StatusInternalServerError)
 		return
@@ -344,12 +343,16 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	user, err := h.server.GetUser(h.ctx, u.Email)
+	claims := r.Context().Value(authKey{}).(*token.UserClaims)
+	user, err := h.server.GetUser(h.ctx, claims.Email)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
 	}
 	pathcUserReq(user, u)
+	if user.Email == ""{
+		user.Email = claims.Email
+	}
 	updated, err := h.server.UpdateUser(h.ctx, user)
 	if err != nil {
 		http.Error(w, "Failed to update user", http.StatusInternalServerError)
@@ -410,13 +413,13 @@ func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// create a json web token (JWT)
-	accessToken, accessTokenClaims, err := h.tokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Minute*15)
+	accessToken, accessTokenClaims, err := h.TokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Minute*15)
 	if err != nil {
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
 	}
 
-	refreshToken, refreshClaims, err := h.tokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Hour*24)
+	refreshToken, refreshClaims, err := h.TokenMaker.CreateToken(gu.ID, gu.Email, gu.IsAdmin, time.Hour*24)
 	if err != nil {
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
@@ -442,12 +445,8 @@ func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 func (h *Handler) logoutUser(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-	err := h.server.DeleteSession(h.ctx, id)
+	claims := r.Context().Value(authKey{}).(*token.UserClaims)	
+	err := h.server.DeleteSession(h.ctx, claims.RegisteredClaims.ID)
 	if err != nil {
 		http.Error(w, "Failed to delete session", http.StatusInternalServerError)
 		return
@@ -460,7 +459,7 @@ func (h *Handler) renewAccessToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	refreshClaims, err := h.tokenMaker.VerifyToken(req.RefreshToken)
+	refreshClaims, err := h.TokenMaker.VerifyToken(req.RefreshToken)
 	if err != nil {
 		http.Error(w, "Error verifying token", http.StatusUnauthorized)
 		return
@@ -478,7 +477,7 @@ func (h *Handler) renewAccessToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid session", http.StatusUnauthorized)
 		return
 	}
-	accessToken, accessClaims, err := h.tokenMaker.CreateToken(refreshClaims.ID, refreshClaims.Email, refreshClaims.IsAdmin, time.Minute*15)
+	accessToken, accessClaims, err := h.TokenMaker.CreateToken(refreshClaims.ID, refreshClaims.Email, refreshClaims.IsAdmin, time.Minute*15)
 	if err != nil {
 		http.Error(w, "Failed to create access token", http.StatusInternalServerError)
 		return
@@ -492,12 +491,8 @@ func (h *Handler) renewAccessToken(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-	err := h.server.RevokeSession(h.ctx, id)
+	claims := r.Context().Value(authKey{}).(*token.UserClaims)
+	err := h.server.RevokeSession(h.ctx, claims.RegisteredClaims.ID)
 	if err != nil {
 		http.Error(w, "Failed to revoke session", http.StatusInternalServerError)
 		return

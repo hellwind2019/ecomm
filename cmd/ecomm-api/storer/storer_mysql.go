@@ -106,8 +106,8 @@ func (s *MySQLStorer) CreateOrder(ctx context.Context, o *Order) (*Order, error)
 }
 func createOrder(ctx context.Context, tx *sqlx.Tx, o *Order) (*Order, error) {
 	res, err := tx.NamedExecContext(ctx, `
-        INSERT INTO orders (payment_method, tax_price, shipping_price, total_price)
-        VALUES (:payment_method, :tax_price, :shipping_price, :total_price)
+        INSERT INTO orders (payment_method, tax_price, shipping_price, total_price, user_id)
+        VALUES (:payment_method, :tax_price, :shipping_price, :total_price, :user_id)
     `, o)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting order: %w", err)
@@ -170,16 +170,16 @@ func (s *MySQLStorer) ListOrders(ctx context.Context) ([]Order, error) {
 //UpdateOrder
 
 // DeleteOrder
-func (s *MySQLStorer) GetOrder(ctx context.Context, id int64) (*Order, error) {
+func (s *MySQLStorer) GetOrder(ctx context.Context, userId int64) (*Order, error) {
 	var o Order
-	err := s.db.GetContext(ctx, &o, "SELECT * FROM orders WHERE id = ?", id)
+	err := s.db.GetContext(ctx, &o, "SELECT * FROM orders WHERE user_id = ?", userId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get order: %w", err)
 	}
 
 	// Fetch order items
 	var items []OrderItem
-	err = s.db.SelectContext(ctx, &o.Items, "SELECT * FROM order_items WHERE order_id = ?", id)
+	err = s.db.SelectContext(ctx, &o.Items, "SELECT * FROM order_items WHERE order_id = ?", o.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get order items: %w", err)
 	}
